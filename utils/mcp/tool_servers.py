@@ -7,6 +7,8 @@ from pathlib import Path
 from agents.mcp import MCPServerStdio, MCPServerSse
 from configs.global_configs import global_configs
 from configs.token_key_session import all_token_key_session
+from configs.instance import instance_config
+from utils.general.template_processor import process_template
 
 
 class ToolCallError(Exception):
@@ -111,54 +113,35 @@ class MCPServerManager:
             'local_binary_paths': self.local_binary_paths,
             'podman_or_docker': global_configs.podman_or_docker,
         }
-        
+
+        # Add instance config variables (ports, instance identification)
+        for key, value in instance_config.items():
+            if isinstance(value, (str, int, float, bool)):
+                template_vars[f'instance.{key}'] = str(value)
+
         # Dynamically add all attributes in global_configs
         for key, value in global_configs.items():
             if isinstance(value, (str, int, float, bool)):  # Only process basic types
                 template_vars[f'config.{key}'] = str(value)
-        
+
         # Dynamically add all attributes in all_token_key_session
         for key, value in all_token_key_session.items():
             if isinstance(value, (str, int, float, bool)):  # Only process basic types
                 template_vars[f'token.{key}'] = str(value)
-        
+
         # Use local_token_key_session to override all_token_key_session
         # And add prompt information
         if self.local_token_key_session is not None:
             for key, value in self.local_token_key_session.items():
                 if isinstance(value, (str, int, float, bool)):  # Only process basic types
                     template_vars[f'token.{key}'] = str(value)
-        
+
         return template_vars
 
     def _process_config_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Process template variables in configuration parameters"""
         template_vars = self._get_template_variables()
-        
-        def replace_templates(obj):
-            if isinstance(obj, str):
-                # Use regular expression to replace all template variables
-                import re
-                pattern = r'\$\{([^}]+)\}'
-                
-                def replacer(match):
-                    var_name = match.group(1)
-                    if var_name in template_vars:
-                        return template_vars[var_name]
-                    else:
-                        print(f"Warning: Template variable '{var_name}' not found")
-                        return match.group(0)  # Keep original
-                
-                return re.sub(pattern, replacer, obj)
-                
-            elif isinstance(obj, list):
-                return [replace_templates(item) for item in obj]
-            elif isinstance(obj, dict):
-                return {k: replace_templates(v) for k, v in obj.items()}
-            else:
-                return obj
-        
-        return replace_templates(params)
+        return process_template(params, template_vars, warn_missing=True)
 
     async def _manage_server_lifecycle(self, name: str, server: Union[MCPServerStdio, MCPServerSse], 
                                        max_connect_retries: int = 3, connect_retry_delay: float = 2.0):

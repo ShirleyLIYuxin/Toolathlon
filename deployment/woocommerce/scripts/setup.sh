@@ -6,21 +6,41 @@
 # read out `podman_or_docker` from global_configs.py
 podman_or_docker=$(uv run python -c "import sys; sys.path.append('configs'); from global_configs import global_configs; print(global_configs.podman_or_docker)")
 
-# Read instance_suffix from ports_config.yaml
-instance_suffix=$(uv run python -c "
-import yaml
+# Parse command line arguments
+COMMAND=${1:-start}
+START_USER=${2:-1}
+USER_COUNT=${3:-20}
+PORT_ARG=${4:-""}
+instance_suffix=${5:-""}
+
+# If port not provided, try to read from instance config
+if [[ -z "$PORT_ARG" ]]; then
+    instance_config=$(uv run python -c "
+import sys
+sys.path.insert(0, '.')
 try:
-    with open('configs/ports_config.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-        print(config.get('instance_suffix', ''))
+    from configs.instance import instance_config
+    print(f'{instance_config.port_woocommerce}|{instance_config.instance_suffix}')
 except:
     print('')
 " 2>/dev/null || echo "")
+
+    if [[ -n "$instance_config" ]]; then
+        IFS='|' read -r PORT_ARG instance_suffix <<< "$instance_config"
+    fi
+fi
+
+# Apply defaults
+PORT=${PORT_ARG:-10003}
 
 WOO_POD="woo-pod${instance_suffix}"
 WOO_DB="woo-db${instance_suffix}"
 WOO_WP="woo-wp${instance_suffix}"
 WOO_NET="woo-net${instance_suffix}"
+
+echo "WooCommerce configuration:"
+echo "  Pod: $WOO_POD"
+echo "  Port: $PORT"
 
 # Function to show usage
 show_usage() {
@@ -61,11 +81,6 @@ stop_services() {
     echo "✓ WooCommerce service stopped"
 }
 
-# Parse command line arguments
-COMMAND=${1:-start}
-START_USER=${2:-1}
-USER_COUNT=${3:-20}
-
 case $COMMAND in
     "stop")
         stop_services
@@ -89,8 +104,7 @@ case $COMMAND in
         ;;
 esac
 
-# Configuration variables
-PORT=10003
+# Configuration variables (PORT is set above from args/instance config)
 WP_URL="http://localhost:$PORT"
 WP_TITLE="My WooCommerce Store"
 WP_ADMIN_USER="mcpwoocommerce"

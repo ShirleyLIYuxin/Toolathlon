@@ -189,6 +189,96 @@ If you'd like to evaluate multiple models in sequence, we provide an ensemble sc
 bash scripts/run_parallel_sequential.sh
 ```
 
+## Running Multiple Instances on One Machine
+
+If you need to run two or more Toolathlon evaluations simultaneously on the same machine (e.g., testing different models with different account sets), you'll need to configure separate instances to avoid port conflicts.
+
+### Quick Setup for Two Instances
+
+**Instance A (default ports):**
+```bash
+# Uses default configuration, no changes needed
+bash global_preparation/deploy_containers.sh
+python eval_server.py 8080 8081
+```
+
+**Instance B (alternate ports):**
+```bash
+# 1. Create instance config with alternate ports
+cp configs/instance.example.yaml configs/instance_b.yaml
+
+# 2. Edit configs/instance_b.yaml to use different ports:
+#    instance_suffix: "-inst2"
+#    port_canvas_http: 11001
+#    port_canvas_https: 21001
+#    port_imap: 2143
+#    port_smtp: 3525
+#    port_smtp_submission: 2587
+#    port_email_web: 11005
+#    port_woocommerce: 11003
+
+# 3. Migrate JSON configs to use variables (one-time, creates backups)
+python global_preparation/migrate_ports_to_variables.py
+
+# 4. Set instance config and deploy
+export TOOLATHLON_INSTANCE_CONFIG=configs/instance_b.yaml
+bash global_preparation/deploy_containers.sh
+
+# 5. Run eval server on different ports
+python eval_server.py 8082 8083
+```
+
+### How It Works
+
+The multi-instance system uses a centralized configuration approach:
+
+1. **Instance Config** (`configs/instance.yaml` or via `TOOLATHLON_INSTANCE_CONFIG` env var):
+   - Defines all port numbers and instance identifiers
+   - Each instance uses a different config file
+
+2. **Template Variables**: Config files use `${instance.port_*}` variables instead of hardcoded ports:
+   ```json
+   {
+     "imap_port": "${instance.port_imap}",
+     "smtp_port": "${instance.port_smtp_submission}"
+   }
+   ```
+
+3. **Container Naming**: The `instance_suffix` prevents container name conflicts:
+   - Instance A: `poste`, `canvas-docker`, `woo-pod`
+   - Instance B: `poste-inst2`, `canvas-docker-inst2`, `woo-pod-inst2`
+
+### Configuration Reference
+
+| Port | Service | Default | Instance B Example |
+|------|---------|---------|-------------------|
+| `port_canvas_http` | Canvas HTTP | 10001 | 11001 |
+| `port_canvas_https` | Canvas HTTPS | 20001 | 21001 |
+| `port_imap` | Email IMAP | 1143 | 2143 |
+| `port_smtp` | Email SMTP | 2525 | 3525 |
+| `port_smtp_submission` | Email Submission | 1587 | 2587 |
+| `port_email_web` | Email Web UI | 10005 | 11005 |
+| `port_woocommerce` | WooCommerce | 10003 | 11003 |
+
+See `configs/instance.example.yaml` for the complete configuration template.
+
+### Migration Script
+
+The migration script converts hardcoded ports to template variables:
+
+```bash
+# Preview changes (dry run)
+python global_preparation/migrate_ports_to_variables.py --dry-run
+
+# Apply changes (creates .json.bak backups)
+python global_preparation/migrate_ports_to_variables.py
+
+# Restore from backups if needed
+python global_preparation/migrate_ports_to_variables.py --restore
+```
+
+After migration, the JSON config files will use variables like `${instance.port_imap}` which are resolved at runtime based on your instance configuration.
+
 ## Visualization
 
 To facilitate viewing the reasoning trajectories of LLMs, we provide a replay tool for developers to visualize any trajectory in `vis_traj`. After obtaining the results, you can simply run the following command:

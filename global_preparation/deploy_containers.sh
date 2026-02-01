@@ -2,12 +2,18 @@
 start_time=$(date +%s)
 echo "Start time: $(date)"
 
+# Load instance configuration (ports, instance suffix, etc.)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../configs/load_instance_env.sh"
+
 poste_configure_dovecot=${1:-true}
 echo "============================================================================================="
 echo "poste_configure_dovecot: $poste_configure_dovecot"
 echo "For some Linux distributions, you need to configure Dovecot to allow plaintext auth."
 echo "If you are not sure, please set to true."
 echo "Our experience: Ubuntu 24.04 should set this as true, but AlmaLinux should set this as false."
+echo "============================================================================================="
+echo "Instance config: suffix='$TOOLATHLON_INSTANCE_SUFFIX' prefix='$TOOLATHLON_INSTANCE_PREFIX'"
 echo "============================================================================================="
 
 sleep 5
@@ -17,8 +23,8 @@ echo "==========================================================================
 echo "Checking and killing processes on required ports..."
 echo "============================================================================================="
 
-# Define all required ports
-REQUIRED_PORTS=(10001 20001 10005 2525 1143 1587 10003 30123 30124 30137)
+# Use ports from instance config
+REQUIRED_PORTS=("${TOOLATHLON_REQUIRED_PORTS[@]}")
 
 for port in "${REQUIRED_PORTS[@]}"; do
     # Check if port is in use
@@ -45,11 +51,12 @@ echo ""
 # this is just to launch a test cluster (also clear existing ones) to make sure the MCP servers are ready to use
 bash deployment/k8s/scripts/setup.sh # this is to create one test cluster
 
-bash deployment/canvas/scripts/setup.sh # port 10001 20001
+# Pass ports from instance config to deployment scripts
+bash deployment/canvas/scripts/setup.sh "" "" "" $TOOLATHLON_PORT_CANVAS_HTTP $TOOLATHLON_PORT_CANVAS_HTTPS "$TOOLATHLON_INSTANCE_SUFFIX"
 
-bash deployment/poste/scripts/setup.sh start $poste_configure_dovecot # port 10005 2525 1143 2587
+bash deployment/poste/scripts/setup.sh start $poste_configure_dovecot $TOOLATHLON_PORT_EMAIL_WEB $TOOLATHLON_PORT_SMTP $TOOLATHLON_PORT_IMAP $TOOLATHLON_PORT_SMTP_SUBMISSION "$TOOLATHLON_INSTANCE_SUFFIX"
 
-bash deployment/woocommerce/scripts/setup.sh start 81 20 # port 10003
+bash deployment/woocommerce/scripts/setup.sh start 81 20 $TOOLATHLON_PORT_WOOCOMMERCE "$TOOLATHLON_INSTANCE_SUFFIX"
 
 # we also use 30123, 30124 ports in two of the k8s tasks
 
