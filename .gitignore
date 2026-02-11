@@ -123,3 +123,6 @@ vis_traj/trajs
 duplicated_page_id.txt
 
 *.tmp
+
+# Local Daytona session docs (contains API keys)
+docs/daytona-integration-session-log.md

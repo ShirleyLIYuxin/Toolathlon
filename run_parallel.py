@@ -14,6 +14,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 import random
+import logging
+
+# Setup logging for sandbox module
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
 async def run_command_async(command: str, log_file: str, timeout_seconds: int = 1800, scheduler: 'AsyncTaskScheduler' = None):
@@ -117,11 +121,18 @@ class TaskResult:
 # Global set to track active processes
 active_processes = set()
 
+# Global scheduler reference for signal handler access to Daytona executors
+_global_scheduler = None
+
 class AsyncTaskScheduler:
-    def __init__(self, conflict_groups: Optional[List[List[str]]], max_workers: int):
+    def __init__(self, conflict_groups: Optional[List[List[str]]], max_workers: int,
+                 sandbox_backend: str = "docker"):
         self.max_workers = max_workers
         self.conflict_locks = {}  # Mapping from task name to lock
         self.semaphore = asyncio.Semaphore(max_workers)  # Concurrency limit
+
+        # Sandbox backend configuration
+        self.sandbox_backend = sandbox_backend
 
         # Task queue and bookkeeping
         self.pending_tasks = asyncio.Queue()  # Not used much here
@@ -144,6 +155,9 @@ class AsyncTaskScheduler:
 
         # Subprocess tracking
         self.active_processes = set()
+
+        # Active executor tracking (for Daytona cleanup)
+        self.active_executors = set()
 
         # Add cleanup method
         def cleanup_processes():
@@ -183,6 +197,10 @@ class AsyncTaskScheduler:
                 print("  ✅ All processes cleaned up")
 
         self.cleanup_processes = cleanup_processes
+
+        # Register as global scheduler for signal handler access
+        global _global_scheduler
+        _global_scheduler = self
 
         # Create locks for conflict groups
         if conflict_groups:
@@ -291,8 +309,6 @@ class AsyncTaskScheduler:
                            maxstep: str, timeout: int, has_lock: bool, eval_config: str = "scripts/formal_run_v0.json",
                            dump_path: str = "./dumps", image_name: str = "lockon0927/toolathlon-task-image:1016beta"):
         """Actually run the task and collect result info."""
-        command = f"bash scripts/run_single_containerized.sh {task_dir_arg} {tag} {dump_path} {model_short_name} {provider} {maxstep} {eval_config} {image_name}"
-
         parts = task_dir_arg.split('/')
         if len(parts) >= 2:
             tasks_folder = parts[0]
@@ -305,27 +321,50 @@ class AsyncTaskScheduler:
 
         log_file = os.path.join(dump_path, tasks_folder, task_name, "run.log")
         container_log_file = os.path.join(dump_path, tasks_folder, task_name, "container.log")
-        
+
         task_start = datetime.now()
-        
+
         print(f"\n🚀 [{task_start.strftime('%H:%M:%S')}] STARTING: {task_dir_arg}")
         print(f"   📝 Log: {log_file}\n     Container log: {container_log_file}")
+        print(f"   🔧 Backend: {self.sandbox_backend}")
         if has_lock:
             print(f"   🔒 Running with conflict lock")
-        
+
+        # Use sandbox executor if backend is daytona, otherwise use shell command
+        if self.sandbox_backend == "daytona":
+            return await self._execute_task_with_executor(
+                task_dir_arg, tag, model_short_name, provider,
+                maxstep, timeout, eval_config, dump_path, image_name,
+                log_file, tasks_folder, task_name, task_start
+            )
+        else:
+            return await self._execute_task_with_shell(
+                task_dir_arg, tag, model_short_name, provider,
+                maxstep, timeout, eval_config, dump_path, image_name,
+                log_file, tasks_folder, task_name, task_start
+            )
+
+    async def _execute_task_with_shell(self, task_dir_arg: str, tag: str,
+                                       model_short_name: str, provider: str,
+                                       maxstep: str, timeout: int, eval_config: str,
+                                       dump_path: str, image_name: str, log_file: str,
+                                       tasks_folder: str, task_name: str, task_start: datetime):
+        """Execute task using the traditional shell script approach."""
+        command = f"bash scripts/run_single_containerized.sh {task_dir_arg} {tag} {dump_path} {model_short_name} {provider} {maxstep} {eval_config} {image_name}"
+
         try:
             result = await run_command_async(command, log_file, timeout_seconds=timeout, scheduler=self)
-            
+
             self.completed_tasks += 1
             elapsed = (datetime.now() - task_start).total_seconds()
-            
+
             print(f"\n🔚 [{datetime.now().strftime('%H:%M:%S')}] SUCCESS: {task_dir_arg}")
             print(f"   ⏱️ Time: {elapsed:.1f}s | Progress: {self.completed_tasks}/{self.total_tasks}")
-            
+
             eval_res_file = os.path.join(dump_path, tasks_folder, task_name, "eval_res.json")
             eval_res = read_json(eval_res_file).get('pass', False) if os.path.exists(eval_res_file) else None
-            
-            if eval_res is None: 
+
+            if eval_res is None:
                 self.unknown_but_finished_tasks += 1
                 eval_res_emoji = "❓"
             else:
@@ -335,8 +374,8 @@ class AsyncTaskScheduler:
             print(f"   🔍 Eval res: {eval_res_emoji}\n     Eval log: {eval_res_file}\n     Run log: {log_file}")
 
             return {
-                'task': task_dir_arg, 
-                'status': 'success', 
+                'task': task_dir_arg,
+                'status': 'success',
                 'elapsed': elapsed,
                 'log_file': log_file,
                 'eval_res_file': eval_res_file,
@@ -344,7 +383,7 @@ class AsyncTaskScheduler:
                 'tag': tag,
                 'model_short_name': model_short_name
             }
-            
+
         except TimeoutError as e:
             self.timeout_tasks += 1
             self.failed_tasks += 1
@@ -369,24 +408,137 @@ class AsyncTaskScheduler:
                 'tag': tag,
                 'model_short_name': model_short_name
             }
-            
+
         except Exception as e:
             self.failed_tasks += 1
             elapsed = (datetime.now() - task_start).total_seconds()
-            
+
             print(f"\n❌ [{datetime.now().strftime('%H:%M:%S')}] FAILED: {task_dir_arg}")
             print(f"   💥 Error: {str(e)[:100]}...")
             print(f"   ⏱️ Time: {elapsed:.1f}s | Progress: {self.completed_tasks + self.failed_tasks}/{self.total_tasks}")
-            
+
             return {
-                'task': task_dir_arg, 
-                'status': 'failed', 
-                'elapsed': elapsed, 
+                'task': task_dir_arg,
+                'status': 'failed',
+                'elapsed': elapsed,
                 'error': str(e),
                 'log_file': log_file,
                 'tag': tag,
                 'model_short_name': model_short_name
             }
+
+    async def _execute_task_with_executor(self, task_dir_arg: str, tag: str,
+                                          model_short_name: str, provider: str,
+                                          maxstep: str, timeout: int, eval_config: str,
+                                          dump_path: str, image_name: str, log_file: str,
+                                          tasks_folder: str, task_name: str, task_start: datetime):
+        """Execute task using the sandbox executor (Daytona)."""
+        from utils.sandbox.executor_factory import create_executor_from_global_config
+
+        executor = create_executor_from_global_config(
+            task_dir=task_dir_arg,
+            model_short_name=model_short_name,
+            provider=provider,
+            max_steps=int(maxstep),
+            timeout_sec=timeout,
+            eval_config=eval_config,
+            dump_path=dump_path,
+            image_name=image_name,
+            project_root=Path.cwd(),
+        )
+
+        self.active_executors.add(executor)
+
+        try:
+            # Execute task using the executor
+            result = await executor.execute_task()
+
+            self.completed_tasks += 1
+            elapsed = result.elapsed_seconds
+
+            status_label = "SUCCESS" if result.success else "FINISHED (non-zero exit)"
+            print(f"\n🔚 [{datetime.now().strftime('%H:%M:%S')}] {status_label}: {task_dir_arg}")
+            print(f"   ⏱️ Time: {elapsed:.1f}s | Progress: {self.completed_tasks}/{self.total_tasks}")
+            if result.error:
+                print(f"   ⚠️ Error: {result.error[:500]}")
+
+            # Results are already downloaded inside execute_task() -> _run_task_internal()
+
+            eval_res_file = os.path.join(dump_path, tasks_folder, task_name, "eval_res.json")
+            eval_res = result.eval_passed
+
+            if eval_res is None:
+                self.unknown_but_finished_tasks += 1
+                eval_res_emoji = "❓"
+            else:
+                eval_res_emoji = "✅" if eval_res else "❌"
+            self.correct_tasks += 1 if eval_res else 0
+            self.incorrect_tasks += 1 if not eval_res else 0
+            print(f"   🔍 Eval res: {eval_res_emoji}\n     Eval log: {eval_res_file}\n     Run log: {log_file}")
+
+            # Write log content to file
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            with open(log_file, 'w') as f:
+                f.write(result.log_content or "")
+                if result.error:
+                    f.write(f"\n\nERROR: {result.error}\n")
+
+            return {
+                'task': task_dir_arg,
+                'status': 'success' if result.success else 'failed',
+                'elapsed': elapsed,
+                'log_file': log_file,
+                'eval_res_file': eval_res_file,
+                'eval_res': eval_res,
+                'tag': tag,
+                'model_short_name': model_short_name
+            }
+
+        except asyncio.TimeoutError:
+            self.timeout_tasks += 1
+            self.failed_tasks += 1
+            elapsed = (datetime.now() - task_start).total_seconds()
+
+            from utils.status_manager import TaskStatusManager
+            try:
+                status_manager = TaskStatusManager(os.path.join(dump_path, tasks_folder, task_name))
+                status_manager.update_running("timeout")
+            except Exception:
+                pass
+
+            print(f"\n⏰ [{datetime.now().strftime('%H:%M:%S')}] TIMEOUT: {task_dir_arg}")
+            print(f"   ⚠️ Killed after {elapsed:.1f}s (limit: {timeout}s) | Progress: {self.completed_tasks + self.failed_tasks}/{self.total_tasks}")
+
+            return {
+                'task': task_dir_arg,
+                'status': 'timeout',
+                'elapsed': elapsed,
+                'error': 'Timeout',
+                'log_file': log_file,
+                'tag': tag,
+                'model_short_name': model_short_name
+            }
+
+        except Exception as e:
+            self.failed_tasks += 1
+            elapsed = (datetime.now() - task_start).total_seconds()
+
+            print(f"\n❌ [{datetime.now().strftime('%H:%M:%S')}] FAILED: {task_dir_arg}")
+            print(f"   💥 Error: {str(e)[:100]}...")
+            print(f"   ⏱️ Time: {elapsed:.1f}s | Progress: {self.completed_tasks + self.failed_tasks}/{self.total_tasks}")
+
+            return {
+                'task': task_dir_arg,
+                'status': 'failed',
+                'elapsed': elapsed,
+                'error': str(e),
+                'log_file': log_file,
+                'tag': tag,
+                'model_short_name': model_short_name
+            }
+
+        finally:
+            self.active_executors.discard(executor)
     
     def print_progress(self):
         """Print progress summary."""
@@ -403,6 +555,16 @@ class AsyncTaskScheduler:
         print(f"  Elapsed time: {elapsed_total:.1f}s")
         print(f"  Max concurrent workers: {self.max_workers}")
         print(f"{'='*60}\n")
+
+    async def cleanup_active_executors(self):
+        """Stop all active Daytona executors (called on interrupt)."""
+        if not self.active_executors:
+            return
+        print(f"\n  Cleaning up {len(self.active_executors)} active Daytona sandboxes...")
+        cleanup_tasks = [executor.stop() for executor in list(self.active_executors)]
+        await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+        self.active_executors.clear()
+        print("  All Daytona sandboxes cleaned up")
 
 def filter_tasks_with_existing_results(all_task_dir_args: List[str], dump_path: str = "dumps") -> tuple[List[str], List[str]]:
     """
@@ -550,8 +712,34 @@ async def main():
                        help="Path to evaluation config file (default: scripts/formal_run_v0.json)")
     parser.add_argument("--image_name", required=False, default="lockon0927/toolathlon-task-image:1016beta",
                        help="Docker image name to use (default: lockon0927/toolathlon-task-image:1016beta)")
-    
+    parser.add_argument("--sandbox_backend", required=False, default=None,
+                       help="Sandbox backend to use: 'docker' (default) or 'daytona'. If not specified, reads from global_configs.py")
+
     args = parser.parse_args()
+
+    # Determine sandbox backend
+    if args.sandbox_backend:
+        sandbox_backend = args.sandbox_backend
+    else:
+        # Try to read from global configs
+        try:
+            sys.path.insert(0, os.path.join(os.getcwd(), 'configs'))
+            from global_configs import global_configs
+            sandbox_backend = global_configs.get('sandbox_backend', 'docker')
+        except Exception:
+            sandbox_backend = 'docker'
+
+    # Set DAYTONA_API_KEY from global_configs if using daytona backend
+    if sandbox_backend == 'daytona':
+        try:
+            if 'global_configs' not in dir():
+                sys.path.insert(0, os.path.join(os.getcwd(), 'configs'))
+                from global_configs import global_configs
+            api_key = global_configs.get('daytona_api_key', '')
+            if api_key and not os.environ.get('DAYTONA_API_KEY'):
+                os.environ['DAYTONA_API_KEY'] = api_key
+        except Exception:
+            pass
     
     # Generate tag or use provided
     if args.tag is None:
@@ -678,7 +866,8 @@ async def main():
         print(f"  Task list filter: None (all tasks)")
     print(f"  Eval config: {args.eval_config}")
     print(f"  Docker image: {args.image_name}")
-    
+    print(f"  Sandbox backend: {sandbox_backend}")
+
     if task_conflict_info:
         print(f"  Conflict groups: {len(task_conflict_info)} groups")
         for i, group in enumerate(task_conflict_info):
@@ -687,7 +876,7 @@ async def main():
         print(f"  No conflict groups defined")
     print(f"{'='*60}\n")
     
-    scheduler = AsyncTaskScheduler(task_conflict_info, args.workers)
+    scheduler = AsyncTaskScheduler(task_conflict_info, args.workers, sandbox_backend=sandbox_backend)
     scheduler.total_tasks = len(all_task_dir_args)
     
     tasks = [
@@ -837,6 +1026,19 @@ async def main():
 def sync_cleanup_processes():
     """Synchronous emergency cleanup of all active processes (for signal handler)."""
     print("\n🧹 Emergency cleanup of all active processes...")
+
+    # Best-effort Daytona sandbox cleanup (sync wrapper for async stop)
+    if _global_scheduler and _global_scheduler.active_executors:
+        print(f"  Cleaning up {len(_global_scheduler.active_executors)} Daytona sandboxes...")
+        try:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(
+                asyncio.wait_for(_global_scheduler.cleanup_active_executors(), timeout=15)
+            )
+            loop.close()
+        except Exception as e:
+            print(f"  Daytona cleanup error (sandboxes may be orphaned): {e}")
+
     processes_to_cleanup = list(active_processes)
 
     if not processes_to_cleanup:
@@ -862,6 +1064,11 @@ def sync_cleanup_processes():
 async def async_cleanup_processes():
     """Asynchronous cleanup of all active processes."""
     print("\n🧹 Cleaning up all active processes...")
+
+    # Cleanup Daytona sandboxes first (async-native)
+    if _global_scheduler and _global_scheduler.active_executors:
+        await _global_scheduler.cleanup_active_executors()
+
     processes_to_cleanup = list(active_processes)
 
     if not processes_to_cleanup:

@@ -60,7 +60,7 @@ dependencies = [
     "gspread>=6.2.1",
     "h11==0.16.0",
     "httpcore==1.0.9",
-    "httpx==0.27.0",
+    "httpx>=0.27.0",
     "httpx-sse==0.4.0",
     "idna==3.10",
     "imagesize==1.4.1",
@@ -173,4 +173,20 @@ dependencies = [
     "fastapi>=0.121.3",
     "websockets>=15.0.1",
     "typer>=0.16.0",
+    "daytona>=0.121.0",
 ]
+
+[project.optional-dependencies]
+# Daytona sandbox support - install with: pip install .[daytona]
+daytona = [
+    "daytona>=0.121.0",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'darwin'"]
+
+# Override httpx constraint from mcp-server-fetch to allow daytona compatibility
+override-dependencies = [
+    "httpx>=0.28.0",
+]
+

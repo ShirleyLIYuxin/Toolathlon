@@ -1,0 +1,6 @@
+notion-movies
+notion-personal-website
+oil-price
+experiments-recordings
+task-tracker
+quantitative-financial-analysis
