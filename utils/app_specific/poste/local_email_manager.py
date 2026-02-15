@@ -12,17 +12,34 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
 
+from utils.general.template_processor import process_config_file
+
 
 class EmailSendError(Exception):
     pass
 
 
 class LocalEmailManager:
-    
-    def __init__(self, config_file: str, verbose: bool = True):
 
+    def __init__(self, config_file: str, verbose: bool = True,
+                 local_token_key_session: Optional[Dict] = None):
+        """
+        Initialize LocalEmailManager.
+
+        Args:
+            config_file: Path to email config JSON file
+            verbose: Whether to print log messages
+            local_token_key_session: Task-specific token overrides for template substitution
+        """
         with open(config_file, 'r', encoding='utf-8') as f:
-            self.config = json.load(f)
+            raw_config = json.load(f)
+
+        # Process template variables (e.g., ${instance.port_imap})
+        self.config = process_config_file(
+            raw_config,
+            local_token_key_session=local_token_key_session,
+            warn_missing=verbose
+        )
 
         self.email = self.config['email']
         self.password = self.config.get('password') or ""  # Allow empty password (local uncertified)

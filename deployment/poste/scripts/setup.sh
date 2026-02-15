@@ -3,34 +3,44 @@
 # Read `podman_or_docker` from global_configs.py
 podman_or_docker=$(uv run python -c "import sys; sys.path.append('configs'); from global_configs import global_configs; print(global_configs.podman_or_docker)")
 
-# Read instance_suffix from ports_config.yaml
-instance_suffix=$(uv run python -c "
-import yaml
+# Get command arguments - ports can be passed as arguments or read from instance config
+COMMAND=${1:-start}            # Default is start
+CONFIGURE_DOVECOT=${2:-true}   # Default is true
+WEB_PORT=${3:-10005}           # Web interface port
+SMTP_PORT=${4:-2525}           # SMTP port
+IMAP_PORT=${5:-1143}           # IMAP port
+SUBMISSION_PORT=${6:-1587}     # SMTP submission port
+instance_suffix=${7:-""}       # Instance suffix for container naming
+NUM_USERS=503
+
+# If ports not provided as args, try to read from instance config
+if [[ -z "$3" ]]; then
+    # Try to read from instance config
+    instance_config=$(uv run python -c "
+import sys
+sys.path.insert(0, '.')
 try:
-    with open('configs/ports_config.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-        print(config.get('instance_suffix', ''))
+    from configs.instance import instance_config
+    print(f'{instance_config.port_email_web}|{instance_config.port_smtp}|{instance_config.port_imap}|{instance_config.port_smtp_submission}|{instance_config.instance_suffix}')
 except:
     print('')
 " 2>/dev/null || echo "")
 
-# Exposed ports - use unprivileged ports
-WEB_PORT=10005        # Web interface port
-SMTP_PORT=2525        # SMTP port
-IMAP_PORT=1143        # IMAP port
-SUBMISSION_PORT=1587  # SMTP submission port
-NUM_USERS=503
+    if [[ -n "$instance_config" ]]; then
+        IFS='|' read -r WEB_PORT SMTP_PORT IMAP_PORT SUBMISSION_PORT instance_suffix <<< "$instance_config"
+    fi
+fi
 
 # Container name with suffix
 CONTAINER_NAME="poste${instance_suffix}"
 
 # Data storage directories - convert to absolute path
-DATA_DIR="$(pwd)/deployment/poste/data"
-CONFIG_DIR="$(pwd)/deployment/poste/configs"
+DATA_DIR="$(pwd)/deployment/poste/data${instance_suffix}"
+CONFIG_DIR="$(pwd)/deployment/poste/configs${instance_suffix}"
 
-# Get command arguments
-COMMAND=${1:-start}            # Default is start
-CONFIGURE_DOVECOT=${2:-true}   # Default is true
+echo "Poste.io configuration:"
+echo "  Container: $CONTAINER_NAME"
+echo "  Ports: WEB=$WEB_PORT, SMTP=$SMTP_PORT, IMAP=$IMAP_PORT, SUBMISSION=$SUBMISSION_PORT"
 
 # Function to stop and remove container
 stop_container() {

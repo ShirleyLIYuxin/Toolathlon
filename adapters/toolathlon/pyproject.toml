@@ -1,0 +1,15 @@
+[project]
+name = "toolathlon-harbor-adapter"
+version = "0.1.0"
+description = "Harbor adapter for Toolathlon benchmark"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

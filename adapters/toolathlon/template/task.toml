@@ -1,0 +1,19 @@
+[metadata]
+author_name = "Toolathlon"
+author_email = "toolathlon@example.com"
+difficulty = "{difficulty}"
+category = "tool-use"
+tags = ["toolathlon"]
+
+[verifier]
+timeout_sec = {max_timeout}
+
+[agent]
+timeout_sec = {max_timeout}
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory = "8G"
+storage = "20G"
+allow_internet = true

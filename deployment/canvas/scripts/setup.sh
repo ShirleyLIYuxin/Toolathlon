@@ -3,29 +3,47 @@
 # read out `podman_or_docker` from global_configs.py
 podman_or_docker=$(uv run python -c "import sys; sys.path.append('configs'); from global_configs import global_configs; print(global_configs.podman_or_docker)")
 
-# Read instance_suffix from ports_config.yaml
-instance_suffix=$(uv run python -c "
-import yaml
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(pwd)"
+
+# Check operation parameter
+operation=${1:-start}
+container_name_arg=${2:-""}
+USERS_COUNT=${3:-503}
+
+# Configure ports - can be passed as arguments or read from instance config
+http_port=${4:-""}
+https_port=${5:-""}
+instance_suffix=${6:-""}
+logsfolder=${7:-logs}
+
+# If ports not provided as args, try to read from instance config
+if [[ -z "$http_port" ]]; then
+    instance_config=$(uv run python -c "
+import sys
+sys.path.insert(0, '.')
 try:
-    with open('configs/ports_config.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-        print(config.get('instance_suffix', ''))
+    from configs.instance import instance_config
+    print(f'{instance_config.port_canvas_http}|{instance_config.port_canvas_https}|{instance_config.instance_suffix}')
 except:
     print('')
 " 2>/dev/null || echo "")
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(pwd)"
+    if [[ -n "$instance_config" ]]; then
+        IFS='|' read -r http_port https_port instance_suffix <<< "$instance_config"
+    fi
+fi
 
-# Configure ports
-http_port=${4:-10001}
-https_port=${5:-20001}
-USERS_COUNT=${3:-503}
-# Check operation parameter
-operation=${1:-start}
-container_name=${2:-canvas-docker${instance_suffix}}
+# Apply defaults if still empty
+http_port=${http_port:-10001}
+https_port=${https_port:-20001}
 
-logsfolder=${6:-logs}
+# Container name with suffix
+container_name=${container_name_arg:-canvas-docker${instance_suffix}}
+
+echo "Canvas configuration:"
+echo "  Container: $container_name"
+echo "  Ports: HTTP=$http_port, HTTPS=$https_port"
 
 case $operation in
   "start")

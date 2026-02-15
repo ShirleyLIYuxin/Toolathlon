@@ -1,0 +1,68 @@
+# Toolathlon Instance Configuration
+#
+# This file contains instance-specific settings for running multiple Toolathlon
+# evaluations on the same machine without conflicts.
+#
+# Usage:
+#   1. Copy this file to instance.yaml (or any name you prefer)
+#   2. Modify the values for your instance
+#   3. Either:
+#      a) Place it at configs/instance.yaml (auto-loaded), or
+#      b) Set TOOLATHLON_INSTANCE_CONFIG=/path/to/your/instance.yaml
+#
+# For running two instances (A and B):
+#   Instance A: Use default ports (or create instance_a.yaml)
+#   Instance B: Create instance_b.yaml with different ports
+#
+#   export TOOLATHLON_INSTANCE_CONFIG=configs/instance_a.yaml  # Terminal 1
+#   export TOOLATHLON_INSTANCE_CONFIG=configs/instance_b.yaml  # Terminal 2
+
+# =============================================================================
+# Instance Identification
+# =============================================================================
+# These are used for container naming to avoid conflicts
+# Container names will be: {instance_prefix}service-name{instance_suffix}
+# Note: Use lowercase, no dashes allowed in suffix
+
+instance_prefix: ""        # e.g., "alpha-" or "inst1-"
+instance_suffix: ""        # e.g., "-alpha" or "-inst1"
+
+# =============================================================================
+# Port Configuration
+# =============================================================================
+# All services that bind to ports on the host machine
+
+# Canvas LMS
+port_canvas_http: 10001
+port_canvas_https: 20001
+
+# Email Server (Poste.io)
+port_imap: 1143
+port_smtp: 2525
+port_smtp_submission: 1587
+port_email_web: 10005
+
+# WooCommerce
+port_woocommerce: 10003
+
+# Kubernetes Services
+port_k8s_pr_preview: 30123
+port_k8s_mysql: 30124
+port_meeting_assign: 30137
+
+# =============================================================================
+# Example: Second Instance Configuration
+# =============================================================================
+# Uncomment and modify for a second instance:
+#
+# instance_suffix: "-inst2"
+# port_canvas_http: 11001
+# port_canvas_https: 21001
+# port_imap: 2143
+# port_smtp: 3525
+# port_smtp_submission: 2587
+# port_email_web: 11005
+# port_woocommerce: 11003
+# port_k8s_pr_preview: 31123
+# port_k8s_mysql: 31124
+# port_meeting_assign: 31137
