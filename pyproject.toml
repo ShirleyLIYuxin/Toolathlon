@@ -183,7 +183,7 @@ daytona = [
 ]
 
 [tool.uv]
-environments = ["sys_platform == 'darwin'"]
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
 
 # Override httpx constraint from mcp-server-fetch to allow daytona compatibility
 override-dependencies = [
