@@ -353,10 +353,17 @@ cd /workspace
 # Activate Python environment
 source .venv/bin/activate
 
+# Create dummy res_log if agent didn't produce one
+# (Native Toolathlon generates this; Harbor agents don't)
+mkdir -p /logs/verifier
+if [ ! -f /logs/verifier/evaluation.log ]; then
+    echo '{{}}' > /logs/verifier/evaluation.log
+fi
+
 # Run the Python evaluation script
 echo "=== Running evaluation for task: {task.task_id} ==="
 
-python evaluation/main.py \\
+python -m evaluation.main \\
     --agent_workspace /app \\
     --groundtruth_workspace /workspace/groundtruth_workspace \\
     --res_log_file /logs/verifier/evaluation.log \\
