@@ -128,3 +128,6 @@ duplicated_page_id.txt
 docs/daytona-integration-session-log.md
 
 adapters/toolathlon/harbor_tasks/
+
+configs/ports_config.yaml
+configs/port_changes*.json

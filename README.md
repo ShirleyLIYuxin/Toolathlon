@@ -189,95 +189,70 @@ If you'd like to evaluate multiple models in sequence, we provide an ensemble sc
 bash scripts/run_parallel_sequential.sh
 ```
 
-## Running Multiple Instances on One Machine
+## Multi-Instance Configuration
 
-If you need to run two or more Toolathlon evaluations simultaneously on the same machine (e.g., testing different models with different account sets), you'll need to configure separate instances to avoid port conflicts.
+If you want to run multiple Toolathlon instances on the same machine (e.g., for different experiments), you need to configure port mappings and instance identifiers to avoid conflicts.
 
-### Quick Setup for Two Instances
+**Edit `configs/ports_config.yaml`:**
+```yaml
+# Instance identifiers (for container/resource naming)
+instance_prefix: "alpha-"      # Prefix for container names
+instance_suffix: "-inst-alpha" # Suffix for k8s/canvas resources
 
-**Instance A (default ports):**
-```bash
-# Uses default configuration, no changes needed
-bash global_preparation/deploy_containers.sh
-python eval_server.py 8080 8081
+# Port mappings (map default ports to avoid conflicts)
+port_mappings:
+  10001: 11001  # MinIO
+  20001: 21001  # Other services
+  10005: 11005
+  # ... other ports
 ```
 
-**Instance B (alternate ports):**
+**Apply port changes:**
 ```bash
-# 1. Create instance config with alternate ports
-cp configs/instance.example.yaml configs/instance_b.yaml
+# Preview changes
+uv run python global_preparation/apply_port_numbers.py --dry-run
 
-# 2. Edit configs/instance_b.yaml to use different ports:
-#    instance_suffix: "-inst2"
-#    port_canvas_http: 11001
-#    port_canvas_https: 21001
-#    port_imap: 2143
-#    port_smtp: 3525
-#    port_smtp_submission: 2587
-#    port_email_web: 11005
-#    port_woocommerce: 11003
+# Apply changes (with confirmation)
+uv run python global_preparation/apply_port_numbers.py
 
-# 3. Migrate JSON configs to use variables (one-time, creates backups)
-python global_preparation/migrate_ports_to_variables.py
+# Restore to default ports
+uv run python global_preparation/apply_port_numbers.py --restore
 
-# 4. Set instance config and deploy
+# Check current status
+uv run python global_preparation/apply_port_numbers.py --status
+```
+
+**Important Notes:**
+
+- **Before `git pull`:** Always restore ports to default values first to avoid conflicts:
+  ```bash
+  uv run python global_preparation/apply_port_numbers.py --restore
+  git pull
+  # Then re-apply your port configuration if needed
+  uv run python global_preparation/apply_port_numbers.py
+  ```
+
+- The `apply` command automatically restores from changelog before applying new configurations, ensuring clean state transitions.
+
+- The `restore` command deletes the changelog after restoring ports, returning the system to its initial state (default ports, no changelog).
+
+### Alternative: Runtime Template Substitution (daytona-integration branch)
+
+The `daytona-integration` branch provides an alternative multi-instance approach using runtime template substitution instead of pre-run file modification. This system is used by the Daytona sandbox executor and deployment scripts on this branch.
+
+**Key differences from the upstream approach:**
+- Uses `configs/instance.yaml` (loaded via `TOOLATHLON_INSTANCE_CONFIG` env var) instead of `ports_config.yaml`
+- Ports are resolved at runtime via `${instance.port_*}` template variables, not by modifying files on disk
+- Stateless — no changelog file needed; switching instances only requires changing the env var
+
+**Usage:**
+```bash
+# Set instance config and run (no file modification needed)
 export TOOLATHLON_INSTANCE_CONFIG=configs/instance_b.yaml
 bash global_preparation/deploy_containers.sh
-
-# 5. Run eval server on different ports
-python eval_server.py 8082 8083
 ```
 
-### How It Works
-
-The multi-instance system uses a centralized configuration approach:
-
-1. **Instance Config** (`configs/instance.yaml` or via `TOOLATHLON_INSTANCE_CONFIG` env var):
-   - Defines all port numbers and instance identifiers
-   - Each instance uses a different config file
-
-2. **Template Variables**: Config files use `${instance.port_*}` variables instead of hardcoded ports:
-   ```json
-   {
-     "imap_port": "${instance.port_imap}",
-     "smtp_port": "${instance.port_smtp_submission}"
-   }
-   ```
-
-3. **Container Naming**: The `instance_suffix` prevents container name conflicts:
-   - Instance A: `poste`, `canvas-docker`, `woo-pod`
-   - Instance B: `poste-inst2`, `canvas-docker-inst2`, `woo-pod-inst2`
-
-### Configuration Reference
-
-| Port | Service | Default | Instance B Example |
-|------|---------|---------|-------------------|
-| `port_canvas_http` | Canvas HTTP | 10001 | 11001 |
-| `port_canvas_https` | Canvas HTTPS | 20001 | 21001 |
-| `port_imap` | Email IMAP | 1143 | 2143 |
-| `port_smtp` | Email SMTP | 2525 | 3525 |
-| `port_smtp_submission` | Email Submission | 1587 | 2587 |
-| `port_email_web` | Email Web UI | 10005 | 11005 |
-| `port_woocommerce` | WooCommerce | 10003 | 11003 |
-
-See `configs/instance.example.yaml` for the complete configuration template.
-
-### Migration Script
-
-The migration script converts hardcoded ports to template variables:
-
-```bash
-# Preview changes (dry run)
-python global_preparation/migrate_ports_to_variables.py --dry-run
-
-# Apply changes (creates .json.bak backups)
-python global_preparation/migrate_ports_to_variables.py
-
-# Restore from backups if needed
-python global_preparation/migrate_ports_to_variables.py --restore
-```
-
-After migration, the JSON config files will use variables like `${instance.port_imap}` which are resolved at runtime based on your instance configuration.
+**Relevant files:** `configs/instance.py`, `configs/instance.example.yaml`, `configs/load_instance_env.sh`, `utils/general/template_processor.py`
 
 ## Visualization
 
