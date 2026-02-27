@@ -16,6 +16,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 # Start the tool server in background
 cd /workspace
+source /workspace/.venv/bin/activate
 python -m adapters.toolathlon.tool_server.server > "$LOG_FILE" 2>&1 &
 TOOL_SERVER_PID=$!
 echo $TOOL_SERVER_PID > /tmp/tool_server.pid
