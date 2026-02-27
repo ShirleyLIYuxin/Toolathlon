@@ -300,17 +300,27 @@ docker_image = "{self.BASE_DOCKER_IMAGE}"
         gt_dst = env_dir / "groundtruth_workspace"
         iw_dst = env_dir / "initial_workspace"
 
+        utils_src = paths.tests_dir / "utils"
+        utils_dst = env_dir / "utils"
+
         if eval_src.exists() and not eval_dst.exists():
             shutil.copytree(eval_src, eval_dst)
         if gt_src.exists() and not gt_dst.exists():
             shutil.copytree(gt_src, gt_dst)
         if iw_src.exists() and not iw_dst.exists():
             shutil.copytree(iw_src, iw_dst)
+        if utils_src.exists() and not utils_dst.exists():
+            shutil.copytree(utils_src, utils_dst)
 
         # Conditionally add credentials COPY
         creds_line = ""
         if (env_dir / "credentials.json").exists():
             creds_line = "COPY credentials.json /workspace/credentials.json"
+
+        # Conditionally add utils COPY (for evaluation scripts with relative imports)
+        utils_line = ""
+        if (env_dir / "utils").exists():
+            utils_line = "COPY utils /workspace/utils"
 
         # Generate entrypoint script that starts tool_server then exec's CMD
         self._generate_entrypoint(paths)
@@ -339,6 +349,7 @@ COPY initial_workspace/ /app/
 # Create log directories
 RUN mkdir -p /logs/verifier /logs/agent
 {creds_line}
+{utils_line}
 
 # Copy and set up entrypoint (starts tool_server before CMD)
 COPY entrypoint.sh /workspace/entrypoint.sh
@@ -480,6 +491,13 @@ exit $exit_code
         files_dst = paths.tests_dir / "files"
         if files_src.exists():
             shutil.copytree(files_src, files_dst, dirs_exist_ok=True)
+
+        # Copy utils directory if exists (some evaluation scripts use relative imports like
+        # `from ..utils.github_fetcher import ...` which need utils/ alongside evaluation/)
+        utils_src = task.task_dir / "utils"
+        utils_dst = paths.tests_dir / "utils"
+        if utils_src.exists():
+            shutil.copytree(utils_src, utils_dst, dirs_exist_ok=True)
 
     def _generate_task_config(self, task: ToolathlonTaskConfig, paths: HarborTaskPaths):
         """Generate task configuration JSON."""
