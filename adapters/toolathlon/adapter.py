@@ -312,6 +312,12 @@ docker_image = "{self.BASE_DOCKER_IMAGE}"
         if utils_src.exists() and not utils_dst.exists():
             shutil.copytree(utils_src, utils_dst)
 
+        # Copy files/ to build context (eval scripts reference ../files/ via relative paths)
+        files_src = paths.tests_dir / "files"
+        files_dst = env_dir / "files"
+        if files_src.exists() and not files_dst.exists():
+            shutil.copytree(files_src, files_dst)
+
         # Conditionally add credentials COPY
         creds_line = ""
         if (env_dir / "credentials.json").exists():
@@ -321,6 +327,11 @@ docker_image = "{self.BASE_DOCKER_IMAGE}"
         utils_line = ""
         if (env_dir / "utils").exists():
             utils_line = "COPY utils /workspace/utils"
+
+        # Conditionally add files COPY (eval scripts reference ../files/ via relative paths)
+        files_line = ""
+        if (env_dir / "files").exists():
+            files_line = "COPY files /workspace/files"
 
         # Generate entrypoint script that starts tool_server then exec's CMD
         self._generate_entrypoint(paths)
@@ -350,6 +361,7 @@ COPY initial_workspace/ /app/
 RUN mkdir -p /logs/verifier /logs/agent
 {creds_line}
 {utils_line}
+{files_line}
 
 # Copy and set up entrypoint (starts tool_server before CMD)
 COPY entrypoint.sh /workspace/entrypoint.sh
