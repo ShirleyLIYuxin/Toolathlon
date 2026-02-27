@@ -390,6 +390,11 @@ mkdir -p "$(dirname "$LOG_FILE")" /logs/agent
 echo "Starting Toolathlon Tool Server..."
 echo "MCP Servers: ${TOOLATHLON_MCP_SERVERS:-none specified}"
 
+# Point tool_server to task-specific credentials file (if it exists)
+if [ -f /workspace/credentials.json ]; then
+    export TOOLATHLON_TASK_CREDENTIALS=/workspace/credentials.json
+fi
+
 # Start tool_server in background
 nohup python -m adapters.toolathlon.tool_server.server > "$LOG_FILE" 2>&1 &
 TOOL_SERVER_PID=$!

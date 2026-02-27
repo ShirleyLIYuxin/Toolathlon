@@ -131,3 +131,4 @@ adapters/toolathlon/harbor_tasks/
 
 configs/ports_config.yaml
 configs/port_changes*.json
+configs/harbor_credentials.sh
