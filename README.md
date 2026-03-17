@@ -166,6 +166,67 @@ bash scripts/run_single_containerized.sh finalpool/{taskname} quickstart {your_d
 
 *Note: There are also other arguments in the script, please take a look at the head of it if for more information. The model name should be exactly the same as the raw name from the provider if you use **unified** model provider, otherwise, please use the alias we preset, see `utils/api_model/model_provider.py` for more details.
 
+### Decoupled Agent Loop
+
+We also provide a decoupled mode where the task environment stays in the container, but the agent loop runs on the host with a selectable framework. This is the recommended entrypoint if you want to swap the host-side agent scaffold without rebuilding the task environment.
+
+Use:
+
+```bash
+bash scripts/run_single_decoupled.sh finalpool/{taskname} quickstart {your_dump_path} {model-name} unified 100 scripts/formal_run_v0.json lockon0927/toolathlon-task-image:1016beta {agent_framework}
+```
+
+Supported `agent_framework` values:
+
+- `toolathlon_default`
+- `claude_agent_sdk`
+
+For `toolathlon_default`, keep using the unified provider environment variables when `provider=unified`:
+
+```bash
+export TOOLATHLON_OPENAI_BASE_URL="https://your-openai-compatible-endpoint/v1"
+export TOOLATHLON_OPENAI_API_KEY="your-key"
+```
+
+For `claude_agent_sdk`, set Anthropic-style environment variables on the host before running:
+
+e.g. Anthropic official
+```bash
+export ANTHROPIC_BASE_URL="https://api.anthropic.com"
+export ANTHROPIC_API_KEY="sk-ant-xxx"
+```
+
+e.g. Openrouter
+```bash
+export ANTHROPIC_BASE_URL="https://openrouter.ai/api"
+export ANTHROPIC_API_KEY="YOUR_OPENROUTER_KEY"
+export ANTHROPIC_AUTH_TOKEN=""
+export ANTHROPIC_DEFAULT_SONNET_MODEL="google/gemini-3-flash-preview"
+```
+
+You can also run the decoupled mode in parallel through `scripts/run_parallel.sh`:
+
+```bash
+bash scripts/run_parallel.sh \
+  {model-name} {your_dump_path} unified 10 \
+  lockon0927/toolathlon-task-image:1016beta "" \
+  decoupled normal {agent_framework}
+```
+
+Argument order for the extended `scripts/run_parallel.sh` interface:
+
+1. `model_name`
+2. `dump_path`
+3. `provider`
+4. `workers`
+5. `image_name` (optional)
+6. `config_file` (optional, pass `""` to auto-generate one)
+7. `runner` (`containerized` or `decoupled`)
+8. `runmode`
+9. `agent_framework` (optional)
+
+See [DECOUPLED_AGENT_LOOP.md](DECOUPLED_AGENT_LOOP.md) for the architecture, configuration, and examples.
+
 ## Evaluation in Parallel with Task Isolation
 
 <!-- To ensure that the execution of different tasks does not interfere with each other, we use containerization to run each task in an isolated environment. This also makes it possible to run tasks in parallel, greatly accelerating evaluation speed. -->

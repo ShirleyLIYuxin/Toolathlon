@@ -217,7 +217,9 @@ class AsyncTaskScheduler:
     async def run_single_task(self, task_dir_arg: str, tag: str, 
                              model_short_name: str, provider: str, 
                              maxstep: str, timeout: int = 1800, eval_config: str = "scripts/formal_run_v0.json",
-                             dump_path: str = "./dumps", image_name: str = "lockon0927/toolathlon-task-image:1016beta"):
+                             dump_path: str = "./dumps", image_name: str = "lockon0927/toolathlon-task-image:1016beta",
+                             runner: str = "containerized", runmode: str = "normal",
+                             agent_framework: Optional[str] = None):
         """Run a single task with proper conflict lock and semaphore management."""
         
         conflict_lock = self.get_task_lock(task_dir_arg)
@@ -231,7 +233,9 @@ class AsyncTaskScheduler:
                     async with self.semaphore:
                         return await self._execute_task(
                             task_dir_arg, tag, model_short_name, 
-                            provider, maxstep, timeout, has_lock=True, eval_config=eval_config, dump_path=dump_path, image_name=image_name
+                            provider, maxstep, timeout, has_lock=True, eval_config=eval_config,
+                            dump_path=dump_path, image_name=image_name, runner=runner,
+                            runmode=runmode, agent_framework=agent_framework
                         )
             finally:
                 self.waiting_for_lock.discard(task_dir_arg)
@@ -242,7 +246,9 @@ class AsyncTaskScheduler:
                 async with self.semaphore:
                     return await self._execute_task(
                         task_dir_arg, tag, model_short_name, 
-                        provider, maxstep, timeout, has_lock=True, eval_config=eval_config, dump_path=dump_path, image_name=image_name
+                        provider, maxstep, timeout, has_lock=True, eval_config=eval_config,
+                        dump_path=dump_path, image_name=image_name, runner=runner,
+                        runmode=runmode, agent_framework=agent_framework
                     )
         
         else:
@@ -250,7 +256,9 @@ class AsyncTaskScheduler:
             async with self.semaphore:
                 return await self._execute_task(
                     task_dir_arg, tag, model_short_name, 
-                    provider, maxstep, timeout, has_lock=False, eval_config=eval_config, dump_path=dump_path, image_name=image_name
+                    provider, maxstep, timeout, has_lock=False, eval_config=eval_config,
+                    dump_path=dump_path, image_name=image_name, runner=runner,
+                    runmode=runmode, agent_framework=agent_framework
                 )
     
     def _archive_previous_results(self, dump_path: str, tasks_folder: str, task_name: str):
@@ -307,8 +315,24 @@ class AsyncTaskScheduler:
     async def _execute_task(self, task_dir_arg: str, tag: str,
                            model_short_name: str, provider: str,
                            maxstep: str, timeout: int, has_lock: bool, eval_config: str = "scripts/formal_run_v0.json",
-                           dump_path: str = "./dumps", image_name: str = "lockon0927/toolathlon-task-image:1016beta"):
+                           dump_path: str = "./dumps", image_name: str = "lockon0927/toolathlon-task-image:1016beta",
+                           runner: str = "containerized", runmode: str = "normal",
+                           agent_framework: Optional[str] = None):
         """Actually run the task and collect result info."""
+        if runner == "decoupled":
+            command = (
+                f"bash scripts/run_single_decoupled.sh {task_dir_arg} {runmode} {dump_path} "
+                f"{model_short_name} {provider} {maxstep} {eval_config} {image_name}"
+            )
+            if agent_framework:
+                command += f" {agent_framework}"
+        else:
+            command = (
+                f"bash scripts/run_single_containerized.sh {task_dir_arg} {tag} {dump_path} "
+                f"{model_short_name} {provider} {maxstep} {eval_config} {image_name}"
+            )
+
+
         parts = task_dir_arg.split('/')
         if len(parts) >= 2:
             tasks_folder = parts[0]
@@ -714,6 +738,14 @@ async def main():
                        help="Docker image name to use (default: lockon0927/toolathlon-task-image:1016beta)")
     parser.add_argument("--sandbox_backend", required=False, default=None,
                        help="Sandbox backend to use: 'docker' (default) or 'daytona'. If not specified, reads from global_configs.py")
+    parser.add_argument("--runner", required=False, default="containerized",
+                       choices=["containerized", "decoupled"],
+                       help="Single-task runner backend (default: containerized)")
+    parser.add_argument("--runmode", required=False, default="normal",
+                       help="Run mode for decoupled runner (default: normal)")
+    parser.add_argument("--agent_framework", required=False, default=None,
+                       help="Agent framework for decoupled runner, e.g. claude_agent_sdk")
+
 
     args = parser.parse_args()
 
@@ -867,6 +899,11 @@ async def main():
     print(f"  Eval config: {args.eval_config}")
     print(f"  Docker image: {args.image_name}")
     print(f"  Sandbox backend: {sandbox_backend}")
+    print(f"  Runner: {args.runner}")
+    if args.runner == "decoupled":
+        print(f"  Run mode: {args.runmode}")
+        print(f"  Agent framework: {args.agent_framework or 'default'}")
+
 
     if task_conflict_info:
         print(f"  Conflict groups: {len(task_conflict_info)} groups")
@@ -882,7 +919,8 @@ async def main():
     tasks = [
         scheduler.run_single_task(
             task_dir_arg, tag, args.model_short_name, 
-            args.provider, args.maxstep, args.timeout, args.eval_config, args.dump_path, args.image_name
+            args.provider, args.maxstep, args.timeout, args.eval_config, dump_path,
+            args.image_name, args.runner, args.runmode, args.agent_framework
         )
         for task_dir_arg in all_task_dir_args
     ]
@@ -921,9 +959,9 @@ async def main():
     print(f"{'='*60}")
     print(f"ANALYZING RESULTS FROM OUTPUT FILES")
     print(f"{'='*60}")
-    print(f"Checking eval_res.json files in {args.dump_path}/{args.tasks_folder}/*/\n")
+    print(f"Checking eval_res.json files in {dump_path}/{args.tasks_folder}/*/\n")
     
-    task_result = analyze_results(all_task_dir_args, args.model_short_name, tag, args.dump_path)
+    task_result = analyze_results(all_task_dir_args, args.model_short_name, tag, dump_path)
     
     print(f"\n{'='*60}")
     print(f"FINAL RESULTS SUMMARY")
