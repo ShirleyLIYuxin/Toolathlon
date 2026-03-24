@@ -92,6 +92,19 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
             logger.info(f"[{self.config.task_dir}] Step 3: Running preprocess...")
             await self._run_preprocess(str(local_output_dir))
 
+            # Step 3.5: Download task_bundle.json to host (needed by host agent loop)
+            logger.info(f"[{self.config.task_dir}] Step 3.5: Downloading task_bundle.json to host...")
+            bundle_path = local_output_dir / "task_bundle.json"
+            await self.download_file(
+                "/workspace/dumps/task_bundle.json",
+                bundle_path,
+            )
+            if not bundle_path.exists():
+                raise RuntimeError(
+                    f"task_bundle.json not found at {bundle_path} after download"
+                )
+            logger.info(f"[{self.config.task_dir}] task_bundle.json downloaded to {bundle_path}")
+
             # Step 4: Start gateway and get URL
             logger.info(f"[{self.config.task_dir}] Step 4: Starting gateway...")
             gateway_url = await self._start_gateway()
@@ -100,7 +113,6 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
 
             # Step 5: Run host agent loop
             logger.info(f"[{self.config.task_dir}] Step 5: Running host agent loop...")
-            bundle_path = local_output_dir / "task_bundle.json"
             host_loop_exit = await self._run_host_agent_loop(
                 bundle_path=str(bundle_path),
                 gateway_url=gateway_url,
