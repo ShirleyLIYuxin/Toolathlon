@@ -32,7 +32,7 @@ def create_executor(
     daytona_snapshot_name: Optional[str] = None,
     daytona_cpu: int = 4,
     daytona_memory_gb: int = 8,
-    daytona_disk_gb: int = 20,
+    daytona_disk_gb: int = 10,
     # Decoupled mode
     runner_mode: str = "containerized",
     agent_framework: str = "toolathlon_default",
@@ -176,7 +176,7 @@ def create_executor_from_global_config(
     daytona_resources = config_data.get("daytona_resources", {})
     daytona_cpu = daytona_resources.get("cpu", 4)
     daytona_memory_gb = daytona_resources.get("memory_gb", 8)
-    daytona_disk_gb = daytona_resources.get("disk_gb", 20)
+    daytona_disk_gb = daytona_resources.get("disk_gb", 10)
 
     return create_executor(
         backend=backend,
