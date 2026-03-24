@@ -33,6 +33,9 @@ def create_executor(
     daytona_cpu: int = 4,
     daytona_memory_gb: int = 8,
     daytona_disk_gb: int = 20,
+    # Decoupled mode
+    runner_mode: str = "containerized",
+    agent_framework: str = "toolathlon_default",
     # Common
     env_vars: Optional[Dict[str, str]] = None,
     project_root: Optional[Path] = None,
@@ -97,11 +100,16 @@ def create_executor(
             daytona_cpu=daytona_cpu,
             daytona_memory_gb=daytona_memory_gb,
             daytona_disk_gb=daytona_disk_gb,
+            runner_mode=runner_mode,
+            agent_framework=agent_framework,
             env_vars=final_env_vars,
         )
 
     # Create executor based on backend
-    if backend.lower() == "daytona":
+    if backend.lower() == "daytona" and config.runner_mode == "decoupled":
+        from utils.sandbox.daytona_decoupled_executor import DaytonaDecoupledExecutor
+        executor = DaytonaDecoupledExecutor(config)
+    elif backend.lower() == "daytona":
         from utils.sandbox.daytona_executor import DaytonaSandboxExecutor
         executor = DaytonaSandboxExecutor(config)
     else:
@@ -126,6 +134,8 @@ def create_executor_from_global_config(
     dump_path: str = "./dumps",
     image_name: str = "lockon0927/toolathlon-task-image:1016beta",
     project_root: Optional[Path] = None,
+    runner_mode: str = "containerized",
+    agent_framework: str = "toolathlon_default",
 ) -> BaseSandboxExecutor:
     """
     Create an executor using settings from global_configs.
@@ -184,6 +194,8 @@ def create_executor_from_global_config(
         daytona_cpu=daytona_cpu,
         daytona_memory_gb=daytona_memory_gb,
         daytona_disk_gb=daytona_disk_gb,
+        runner_mode=runner_mode,
+        agent_framework=agent_framework,
         project_root=project_root,
     )
 

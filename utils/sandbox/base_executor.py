@@ -53,6 +53,10 @@ class SandboxConfig:
     daytona_memory_gb: int = 8
     daytona_disk_gb: int = 20
 
+    # Decoupled mode settings
+    runner_mode: str = "containerized"  # "containerized" or "decoupled"
+    agent_framework: str = "toolathlon_default"  # "toolathlon_default" or "claude_agent_sdk"
+
     # Environment variables to pass
     env_vars: Dict[str, str] = field(default_factory=dict)
 

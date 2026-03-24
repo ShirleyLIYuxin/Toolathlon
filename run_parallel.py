@@ -359,7 +359,8 @@ class AsyncTaskScheduler:
             return await self._execute_task_with_executor(
                 task_dir_arg, tag, model_short_name, provider,
                 maxstep, timeout, eval_config, dump_path, image_name,
-                log_file, tasks_folder, task_name, task_start
+                log_file, tasks_folder, task_name, task_start,
+                runner=runner, agent_framework=agent_framework,
             )
         else:
             return await self._execute_task_with_shell(
@@ -455,7 +456,9 @@ class AsyncTaskScheduler:
                                           model_short_name: str, provider: str,
                                           maxstep: str, timeout: int, eval_config: str,
                                           dump_path: str, image_name: str, log_file: str,
-                                          tasks_folder: str, task_name: str, task_start: datetime):
+                                          tasks_folder: str, task_name: str, task_start: datetime,
+                                          runner: str = "containerized",
+                                          agent_framework: Optional[str] = None):
         """Execute task using the sandbox executor (Daytona)."""
         from utils.sandbox.executor_factory import create_executor_from_global_config
 
@@ -469,6 +472,8 @@ class AsyncTaskScheduler:
             dump_path=dump_path,
             image_name=image_name,
             project_root=Path.cwd(),
+            runner_mode=runner if runner else "containerized",
+            agent_framework=agent_framework if agent_framework else "toolathlon_default",
         )
 
         self.active_executors.add(executor)
