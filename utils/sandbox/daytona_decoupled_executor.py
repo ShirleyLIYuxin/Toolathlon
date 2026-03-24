@@ -74,7 +74,7 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
         task_parts = self.config.task_dir.split("/")
         tasks_folder = task_parts[0] if len(task_parts) >= 2 else ""
         task_name = task_parts[1] if len(task_parts) >= 2 else self.config.task_dir
-        local_output_dir = Path(self.config.dump_path) / tasks_folder / task_name
+        local_output_dir = (Path(self.config.dump_path) / tasks_folder / task_name).resolve()
         local_output_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -119,6 +119,14 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
                 log_path=str(local_output_dir / "host_loop.log"),
             )
             logger.info(f"[{self.config.task_dir}] Host agent loop exit code: {host_loop_exit}")
+
+            # Step 5.5: Upload traj_log.json from host to sandbox (eval needs it)
+            traj_log_path = local_output_dir / "traj_log.json"
+            if traj_log_path.exists():
+                logger.info(f"[{self.config.task_dir}] Step 5.5: Uploading traj_log.json to sandbox...")
+                await self.upload_file(traj_log_path, "/workspace/dumps/traj_log.json")
+            else:
+                logger.warning(f"[{self.config.task_dir}] traj_log.json not found at {traj_log_path}, eval may fail")
 
             # Step 6: Run evaluation
             logger.info(f"[{self.config.task_dir}] Step 6: Running evaluation...")
@@ -199,15 +207,18 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
 
     async def _run_preprocess(self, host_output_folder: str) -> None:
         """Run container_preprocess.py in the sandbox."""
+        import shlex
+        quoted_host_output = shlex.quote(host_output_folder)
+        logger.info(f"Preprocess host_output_folder: {host_output_folder}")
         cmd = (
             f"uv run python -m scripts.decoupled.container_preprocess "
-            f"--eval_config {self.config.eval_config} "
-            f"--task_dir {self.config.task_dir} "
+            f"--eval_config {shlex.quote(self.config.eval_config)} "
+            f"--task_dir {shlex.quote(self.config.task_dir)} "
             f"--max_steps_under_single_turn_mode {self.config.max_steps} "
-            f"--model_short_name {self.config.model_short_name} "
-            f"--provider {self.config.provider} "
+            f"--model_short_name {shlex.quote(self.config.model_short_name)} "
+            f"--provider {shlex.quote(self.config.provider)} "
             f"--bundle_file /workspace/dumps/task_bundle.json "
-            f"--host_output_folder {host_output_folder} "
+            f"--host_output_folder {quoted_host_output} "
             f"--debug"
         )
         result = await self.exec(cmd, cwd="/workspace", timeout_sec=PREPROCESS_TIMEOUT)
@@ -355,6 +366,8 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
 
         # Build environment - inherit current env plus any needed vars
         env = os.environ.copy()
+        # Remove CLAUDECODE to avoid "nested session" detection by claude_agent_sdk
+        env.pop("CLAUDECODE", None)
 
         with open(log_path, "w") as log_file:
             process = await asyncio.create_subprocess_exec(
