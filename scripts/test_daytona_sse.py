@@ -136,11 +136,11 @@ async def main():
             # Wait a moment for server to bind
             await asyncio.sleep(3)
 
-            # Step 3: Get preview URL
-            logger.info(f"Getting preview URL for port {args.port}...")
-            preview_url = await sandbox.get_preview_link(args.port)
-            if not preview_url:
-                logger.error("get_preview_link returned empty!")
+            # Step 3: Get signed preview URL (includes auth token in subdomain)
+            logger.info(f"Getting signed preview URL for port {args.port}...")
+            preview_result = await sandbox.create_signed_preview_url(args.port, expires_in_seconds=3600)
+            if not preview_result:
+                logger.error("create_signed_preview_url returned empty!")
                 # Check server logs
                 s2 = str(uuid4())
                 await sandbox.process.create_session(s2)
@@ -156,6 +156,15 @@ async def main():
                     logger.error(f"Server log: {lg.stdout}")
                 sys.exit(1)
 
+            # Extract URL string from result object
+            if hasattr(preview_result, 'url'):
+                preview_url = preview_result.url
+            elif isinstance(preview_result, dict) and 'url' in preview_result:
+                preview_url = preview_result['url']
+            elif isinstance(preview_result, str):
+                preview_url = preview_result
+            else:
+                preview_url = str(preview_result)
             if not preview_url.startswith("http"):
                 preview_url = f"https://{preview_url}"
 

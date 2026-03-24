@@ -239,12 +239,24 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
         gateway_pid = result.stdout.strip()
         logger.info(f"Gateway started with PID: {gateway_pid}")
 
-        # Get preview URL from Daytona
-        preview_url = await self._sandbox.get_preview_link(GATEWAY_PORT)
-        if not preview_url:
+        # Get signed preview URL (includes auth token in subdomain, no redirect)
+        preview_result = await self._sandbox.create_signed_preview_url(
+            GATEWAY_PORT, expires_in_seconds=7200
+        )
+        if not preview_result:
             raise RuntimeError(
                 f"Failed to get preview URL for port {GATEWAY_PORT}"
             )
+
+        # Extract URL string from result object
+        if hasattr(preview_result, 'url'):
+            preview_url = preview_result.url
+        elif isinstance(preview_result, dict) and 'url' in preview_result:
+            preview_url = preview_result['url']
+        elif isinstance(preview_result, str):
+            preview_url = preview_result
+        else:
+            preview_url = str(preview_result)
 
         # Ensure URL has proper scheme
         if not preview_url.startswith("http"):
