@@ -121,6 +121,19 @@ class ServiceDeployer:
             logger.info("Docker daemon already running in sandbox")
             return
 
+        # Install dockerd if not present
+        check = await executor.exec("which dockerd", timeout_sec=10)
+        if check.return_code != 0:
+            logger.info("dockerd not found, installing docker.io...")
+            install = await executor.exec(
+                "apt-get update -qq && apt-get install -y -qq docker.io >/dev/null 2>&1",
+                timeout_sec=120,
+            )
+            if install.return_code != 0:
+                logger.error(f"Failed to install docker.io: {install.stderr[-500:]}")
+                raise RuntimeError("Failed to install docker.io in sandbox")
+            logger.info("docker.io installed successfully")
+
         logger.info("Starting Docker daemon in sandbox...")
 
         # Start dockerd in background
@@ -205,14 +218,26 @@ class ServiceDeployer:
             "docker exec poste doveadm reload 2>/dev/null || true", timeout_sec=30
         )
 
+        # Wait for Poste internal services (dovecot/IMAP) to be ready
+        # HTTP readiness doesn't guarantee IMAP is accepting connections
+        logger.info("Waiting for Poste IMAP to be ready...")
+        imap_ready = await self._wait_for_service(
+            executor,
+            name="poste-imap",
+            check_cmd=f"bash -c 'echo | nc -w3 localhost {ports['imap']} && echo OK'",
+            timeout=120,
+        )
+        if not imap_ready:
+            logger.warning("Poste IMAP may not be fully ready, continuing with user creation...")
+
         # Create user accounts using the deployment script (if uploaded)
         create_users_result = await executor.exec(
             "test -f /workspace/deployment/poste/scripts/create_users.sh && "
             "bash /workspace/deployment/poste/scripts/create_users.sh 503 || "
             "echo 'create_users.sh not found, skipping user creation'",
-            timeout_sec=300,
+            timeout_sec=600,
         )
-        logger.info(f"User creation: {create_users_result.stdout[:200]}")
+        logger.info(f"User creation exit={create_users_result.return_code}: {create_users_result.stdout[-300:]}")
 
     async def _deploy_canvas(self, executor: "DaytonaSandboxExecutor") -> None:
         """Deploy Canvas LMS inside the sandbox."""

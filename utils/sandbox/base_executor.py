@@ -51,7 +51,7 @@ class SandboxConfig:
     daytona_snapshot_name: Optional[str] = None
     daytona_cpu: int = 4
     daytona_memory_gb: int = 8
-    daytona_disk_gb: int = 20
+    daytona_disk_gb: int = 10
 
     # Decoupled mode settings
     runner_mode: str = "containerized"  # "containerized" or "decoupled"
