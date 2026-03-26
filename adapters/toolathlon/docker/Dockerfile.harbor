@@ -54,7 +54,7 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g npm@latest
+    && npm install -g npm@11.4.1
 
 # Install Docker CLI (for remote Docker daemon connection)
 RUN wget -q https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz \
@@ -96,8 +96,8 @@ COPY . /workspace/
 # Install Python dependencies
 RUN uv sync --frozen
 
-# Install Node.js dependencies
-RUN npm install
+# Install Node.js dependencies from lockfile for reproducible builds.
+RUN npm ci --no-audit --no-fund
 
 # Install Playwright browsers
 RUN . .venv/bin/activate && playwright install chromium
@@ -137,7 +137,7 @@ RUN git clone https://github.com/lockon-n/yahoo-finance-mcp \
 RUN git clone https://github.com/lockon-n/youtube-mcp-server \
     && cd youtube-mcp-server \
     && git checkout b202e00e9014bf74b9f5188b623cad16f13c01c4 \
-    && npm install \
+    && npm install --no-audit --no-fund \
     && npm run build
 
 # Arxiv LaTeX MCP
@@ -150,7 +150,7 @@ RUN git clone https://github.com/takashiishida/arxiv-latex-mcp.git \
 RUN git clone https://github.com/matteoantoci/google-forms-mcp.git \
     && cd google-forms-mcp \
     && git checkout 96f7fa1ff02b8130105ddc6d98796f3b49c1c574 \
-    && npm install \
+    && npm install --no-audit --no-fund \
     && npm run build \
     && npm audit fix --force || true
 
