@@ -382,16 +382,19 @@ CMD ["sleep", "infinity"]
         """Generate entrypoint.sh that starts tool_server then exec's CMD.
 
         This script runs as Docker ENTRYPOINT. It:
-        1. Starts the tool_server (FastAPI MCP wrapper) in background
-        2. Waits for it to be healthy
-        3. exec's into whatever CMD was passed (e.g., "sleep infinity")
+        1. Runs preprocess if the task has one (P0 fix)
+        2. Initializes MCP-specific directories
+        3. Starts the tool_server (FastAPI MCP wrapper) in background
+        4. Waits for it to be healthy
+        5. exec's into whatever CMD was passed (e.g., "sleep infinity")
 
         Using ENTRYPOINT (not CMD) is critical because Harbor's docker-compose
         overrides CMD with `command: sleep infinity`, but ENTRYPOINT is preserved.
         """
         entrypoint = '''#!/bin/bash
-# Toolathlon ENTRYPOINT: start tool_server, then exec CMD
+# Toolathlon ENTRYPOINT: preprocess → tool_server → exec CMD
 # This runs as PID 1 wrapper — tool_server runs in background.
+set -o pipefail
 
 cd /workspace
 source /workspace/.venv/bin/activate
@@ -399,6 +402,37 @@ source /workspace/.venv/bin/activate
 LOG_FILE="${TOOLATHLON_SERVER_LOG:-/logs/agent/tool_server.log}"
 mkdir -p "$(dirname "$LOG_FILE")" /logs/agent
 
+# --- Preprocess ---
+# Mirrors TaskAgent.initialize_workspace() from utils/roles/task_agent.py
+TASK_ID="${TOOLATHLON_TASK_ID}"
+LAUNCH_TIME="${TOOLATHLON_LAUNCH_TIME:-$(date '+%Y-%m-%d %H:%M:%S %A')}"
+
+PREPROCESS_PATH="/workspace/tasks/finalpool/${TASK_ID}/preprocess/main.py"
+if [ -f "$PREPROCESS_PATH" ]; then
+    echo "Running preprocess for task: ${TASK_ID}..."
+    uv run -m "tasks.finalpool.${TASK_ID}.preprocess.main" \
+        --agent_workspace /app \
+        --launch_time "${LAUNCH_TIME}" \
+        2>&1 | tee /logs/agent/preprocess.log
+    if [ ${PIPESTATUS[0]} -ne 0 ]; then
+        echo "FATAL: Preprocess failed for task ${TASK_ID}. See /logs/agent/preprocess.log" >&2
+        exit 1
+    fi
+    echo "Preprocess completed successfully."
+else
+    echo "No preprocess script for task: ${TASK_ID}, skipping."
+fi
+
+# MCP-specific directory initialization
+# (from utils/general/helper.py:specifical_inialize_for_mcp)
+# *"playwright"* also matches "playwright_with_chunk" (23 tasks)
+MCP_SERVERS="${TOOLATHLON_MCP_SERVERS}"
+[[ "$MCP_SERVERS" == *"arxiv_local"* ]] && mkdir -p /app/arxiv_local_storage
+[[ "$MCP_SERVERS" == *"memory"* ]] && mkdir -p /app/memory
+[[ "$MCP_SERVERS" == *"xmind"* ]] && mkdir -p /app/xmind
+[[ "$MCP_SERVERS" == *"playwright"* ]] && mkdir -p /app/.playwright_output
+
+# --- Start Tool Server ---
 echo "Starting Toolathlon Tool Server..."
 echo "MCP Servers: ${TOOLATHLON_MCP_SERVERS:-none specified}"
 

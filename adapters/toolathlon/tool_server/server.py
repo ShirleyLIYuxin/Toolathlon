@@ -29,7 +29,7 @@ import uvicorn
 # Add parent paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from utils.mcp.tool_servers import MCPServerManager, ToolCallError
+from utils.mcp.tool_servers import MCPServerManager, ToolCallError, call_tool_with_retry
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -213,7 +213,7 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> ToolCallRes
     server = mcp_manager.connected_servers[server_name]
 
     try:
-        result = await server.call_tool(actual_tool_name, arguments)
+        result = await call_tool_with_retry(server, actual_tool_name, arguments, retry_time=1, delay=0.5)
 
         # Convert result to JSON-serializable format
         if hasattr(result, 'content'):
