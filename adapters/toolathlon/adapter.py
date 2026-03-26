@@ -250,6 +250,14 @@ class ToolathlonToHarbor:
         tags = ["toolathlon"] + task.needed_mcp_servers[:5]
         tags_str = json.dumps(tags)
 
+        # NOTE: do NOT set docker_image here. In Harbor, docker_image means
+        # "skip Dockerfile build and use this prebuilt image directly". That
+        # would bypass the per-task Dockerfile (which COPYs evaluation/,
+        # groundtruth/, initial_workspace/, sets ENTRYPOINT for preprocess +
+        # tool_server, etc.) and run the bare base image instead — causing
+        # evaluation module-not-found errors and missing task-specific setup.
+        # The base image reference is already in environment/Dockerfile's
+        # FROM line; Harbor will build from that Dockerfile automatically.
         config = f'''[metadata]
 author_name = "Toolathlon"
 author_email = "toolathlon@example.com"
@@ -269,7 +277,6 @@ cpus = 2
 memory = "8G"
 storage = "20G"
 allow_internet = true
-docker_image = "{self.BASE_DOCKER_IMAGE}"
 '''
         paths.config_path.write_text(config)
 
