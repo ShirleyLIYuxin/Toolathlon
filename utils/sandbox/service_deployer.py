@@ -230,14 +230,41 @@ class ServiceDeployer:
         if not imap_ready:
             logger.warning("Poste IMAP may not be fully ready, continuing with user creation...")
 
-        # Create user accounts using the deployment script (if uploaded)
-        create_users_result = await executor.exec(
-            "test -f /workspace/deployment/poste/scripts/create_users.sh && "
-            "bash /workspace/deployment/poste/scripts/create_users.sh 503 || "
-            "echo 'create_users.sh not found, skipping user creation'",
-            timeout_sec=600,
+        # Create user accounts directly via docker exec + jq, bypassing create_users.sh
+        # which has uv run dependency issues in the sandbox.
+        logger.info("Creating email user accounts via direct docker exec...")
+
+        # Create domain first
+        await executor.exec(
+            'docker exec --user=8 poste php /opt/admin/bin/console domain:create mcp.com 2>&1 || true',
+            timeout_sec=30,
         )
-        logger.info(f"User creation exit={create_users_result.return_code}: {create_users_result.stdout[-300:]}")
+
+        # Create admin
+        await executor.exec(
+            'docker exec --user=8 poste php /opt/admin/bin/console email:create '
+            '"mcpposte_admin@mcp.com" "mcpposte" "System Administrator" 2>&1 || true',
+            timeout_sec=30,
+        )
+        await executor.exec(
+            'docker exec --user=8 poste php /opt/admin/bin/console email:admin '
+            '"mcpposte_admin@mcp.com" 2>&1 || true',
+            timeout_sec=30,
+        )
+
+        # Create users from users_data.json using jq + while read loop
+        # jq expression must use single quotes to avoid shell expansion of \(...)
+        create_cmd = (
+            "cd /workspace && "
+            r"""jq -r '.users[] | "\(.email)|\(.password)|\(.full_name)"' configs/users_data.json"""
+            " | head -503 | "
+            r"""while IFS='|' read -r email password fullname; do """
+            r"""docker exec --user=8 poste php /opt/admin/bin/console email:create "$email" "$password" "$fullname" 2>/dev/null; """
+            "done && "
+            "echo USERS_CREATED=$(docker exec --user=8 poste php /opt/admin/bin/console email:list 2>/dev/null | wc -l)"
+        )
+        create_result = await executor.exec(create_cmd, timeout_sec=600)
+        logger.info(f"User creation exit={create_result.return_code}: {create_result.stdout[-500:]}")
 
     async def _deploy_canvas(self, executor: "DaytonaSandboxExecutor") -> None:
         """Deploy Canvas LMS inside the sandbox."""
