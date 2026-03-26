@@ -115,7 +115,7 @@ async def main():
     image = (
         Image.base(args.base_image)
         .dockerfile_commands([
-            "RUN apt-get update && apt-get install -y docker.io && rm -rf /var/lib/apt/lists/*",
+            "RUN apt-get update && apt-get install -y docker.io jq && rm -rf /var/lib/apt/lists/*",
             "RUN mkdir -p /workspace/dumps /workspace/logs /workspace/tasks /workspace/deployment /workspace/configs",
         ])
     )
@@ -128,7 +128,15 @@ async def main():
             existing = await daytona.snapshot.get(args.snapshot_name)
             logger.info(f"Deleting existing snapshot '{args.snapshot_name}' (state={existing.state})")
             await daytona.snapshot.delete(existing)
-            await asyncio.sleep(3)
+            logger.info("Waiting for deletion to propagate...")
+            for _ in range(30):
+                await asyncio.sleep(3)
+                try:
+                    await daytona.snapshot.get(args.snapshot_name)
+                except Exception:
+                    break  # deleted
+            else:
+                logger.warning("Snapshot still exists after 90s, proceeding anyway")
         except Exception:
             pass
 
