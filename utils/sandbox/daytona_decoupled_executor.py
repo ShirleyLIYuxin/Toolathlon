@@ -32,13 +32,11 @@ from utils.sandbox.service_deployer import ServiceDeployer
 
 logger = logging.getLogger(__name__)
 
-# Default gateway port inside the sandbox
-GATEWAY_PORT = 10086
-# How long to wait for gateway to become ready
-GATEWAY_STARTUP_TIMEOUT = 120
-# How long to wait for each phase
-PREPROCESS_TIMEOUT = 300
-EVAL_TIMEOUT = 300
+# Legacy defaults — actual values come from SandboxConfig fields:
+#   config.daytona_gateway_port (default 10086)
+#   config.daytona_gateway_startup_timeout (default 120)
+#   config.daytona_preprocess_timeout (default 300)
+#   config.daytona_eval_timeout (default 300)
 
 
 class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
@@ -105,6 +103,19 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
                 )
             logger.info(f"[{self.config.task_dir}] task_bundle.json downloaded to {bundle_path}")
 
+            # Step 3.6: Download agent workspace to host
+            # The host_agent_loop does os.chdir(agent_workspace), so the directory
+            # must exist locally. In Docker decoupled mode this is shared via volume
+            # mount; in Daytona mode we need to explicitly download it.
+            host_workspace = local_output_dir / "workspace"
+            host_workspace.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[{self.config.task_dir}] Step 3.6: Downloading workspace to host...")
+            try:
+                await self.download_dir("/workspace/dumps/workspace", host_workspace)
+                logger.info(f"[{self.config.task_dir}] Workspace downloaded to {host_workspace}")
+            except Exception as e:
+                logger.warning(f"[{self.config.task_dir}] Workspace download failed (may be empty): {e}")
+
             # Step 4: Start gateway and get URL
             logger.info(f"[{self.config.task_dir}] Step 4: Starting gateway...")
             gateway_url = await self._start_gateway()
@@ -120,13 +131,18 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
             )
             logger.info(f"[{self.config.task_dir}] Host agent loop exit code: {host_loop_exit}")
 
-            # Step 5.5: Upload traj_log.json from host to sandbox (eval needs it)
+            # Step 5.5: Upload traj_log.json and workspace from host back to sandbox
             traj_log_path = local_output_dir / "traj_log.json"
             if traj_log_path.exists():
                 logger.info(f"[{self.config.task_dir}] Step 5.5: Uploading traj_log.json to sandbox...")
                 await self.upload_file(traj_log_path, "/workspace/dumps/traj_log.json")
             else:
                 logger.warning(f"[{self.config.task_dir}] traj_log.json not found at {traj_log_path}, eval may fail")
+
+            # NOTE: Do NOT upload host workspace back to sandbox here.
+            # The agent modifies files in the sandbox via MCP filesystem server,
+            # so the sandbox has the correct state. Uploading the stale host copy
+            # would overwrite the agent's work.
 
             # Step 6: Run evaluation
             logger.info(f"[{self.config.task_dir}] Step 6: Running evaluation...")
@@ -152,8 +168,8 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
             # Try to download whatever results exist
             try:
                 await self._download_results(local_output_dir)
-            except Exception:
-                pass
+            except Exception as dl_err:
+                logger.warning(f"[{self.config.task_dir}] Failed to download results after error: {dl_err}")
             raise
 
     async def _upload_deployment_files(self) -> None:
@@ -221,7 +237,7 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
             f"--host_output_folder {quoted_host_output} "
             f"--debug"
         )
-        result = await self.exec(cmd, cwd="/workspace", timeout_sec=PREPROCESS_TIMEOUT)
+        result = await self.exec(cmd, cwd="/workspace", timeout_sec=self.config.daytona_preprocess_timeout)
         if result.return_code != 0:
             logger.error(f"Preprocess stdout: {result.stdout[-2000:]}")
             logger.error(f"Preprocess stderr: {result.stderr[-2000:]}")
@@ -243,7 +259,7 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
         gateway_cmd = (
             f"nohup uv run python -m scripts.decoupled.container_tool_gateway "
             f"--bundle_file /workspace/dumps/task_bundle.json "
-            f"--host 0.0.0.0 --port {GATEWAY_PORT} --debug "
+            f"--host 0.0.0.0 --port {self.config.daytona_gateway_port} --debug "
             f"> /workspace/logs/gateway.log 2>&1 & echo $!"
         )
         result = await self.exec(gateway_cmd, cwd="/workspace", timeout_sec=30)
@@ -251,12 +267,13 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
         logger.info(f"Gateway started with PID: {gateway_pid}")
 
         # Get signed preview URL (includes auth token in subdomain, no redirect)
+        gateway_port = self.config.daytona_gateway_port
         preview_result = await self._sandbox.create_signed_preview_url(
-            GATEWAY_PORT, expires_in_seconds=7200
+            gateway_port, expires_in_seconds=7200
         )
         if not preview_result:
             raise RuntimeError(
-                f"Failed to get preview URL for port {GATEWAY_PORT}"
+                f"Failed to get preview URL for port {gateway_port}"
             )
 
         # Extract URL string from result object
@@ -292,7 +309,8 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
         elapsed = 0
         interval = 3
 
-        while elapsed < GATEWAY_STARTUP_TIMEOUT:
+        timeout = self.config.daytona_gateway_startup_timeout
+        while elapsed < timeout:
             try:
                 # Use subprocess curl since we're on the host
                 proc = await asyncio.create_subprocess_exec(
@@ -310,7 +328,7 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
             await asyncio.sleep(interval)
             elapsed += interval
             if elapsed % 15 == 0:
-                logger.info(f"Waiting for gateway... ({elapsed}/{GATEWAY_STARTUP_TIMEOUT}s)")
+                logger.info(f"Waiting for gateway... ({elapsed}/{timeout}s)")
 
         return False
 
@@ -403,7 +421,7 @@ class DaytonaDecoupledExecutor(DaytonaSandboxExecutor):
             "uv run python -m scripts.decoupled.container_eval "
             "--bundle_file /workspace/dumps/task_bundle.json"
         )
-        result = await self.exec(cmd, cwd="/workspace", timeout_sec=EVAL_TIMEOUT)
+        result = await self.exec(cmd, cwd="/workspace", timeout_sec=self.config.daytona_eval_timeout)
 
         if result.return_code != 0:
             logger.warning(

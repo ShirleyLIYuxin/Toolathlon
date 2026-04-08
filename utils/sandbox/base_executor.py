@@ -57,6 +57,15 @@ class SandboxConfig:
     runner_mode: str = "containerized"  # "containerized" or "decoupled"
     agent_framework: str = "toolathlon_default"  # "toolathlon_default" or "claude_agent_sdk"
 
+    # Daytona project label (prevents accidental deletion of other projects' sandboxes)
+    daytona_project_label: str = "toolathlonShirley"
+
+    # Daytona decoupled mode timeouts (seconds)
+    daytona_gateway_port: int = 10086
+    daytona_gateway_startup_timeout: int = 120
+    daytona_preprocess_timeout: int = 300
+    daytona_eval_timeout: int = 300
+
     # Environment variables to pass
     env_vars: Dict[str, str] = field(default_factory=dict)
 
@@ -208,8 +217,9 @@ class BaseSandboxExecutor(ABC):
         finally:
             try:
                 await self.stop()
-            except Exception:
-                pass  # Ignore cleanup errors
+            except Exception as cleanup_err:
+                import logging
+                logging.getLogger(__name__).warning(f"Sandbox cleanup failed: {cleanup_err}")
 
     async def _run_task_internal(self) -> ExecutionResult:
         """

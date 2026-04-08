@@ -34,4 +34,16 @@ global_configs = Dict(
         memory_gb=8,  # Memory in GB
         disk_gb=20,   # Disk space in GB
     ),
+
+    # Daytona project label — used to tag sandboxes for safe identification/cleanup.
+    # Change this if sharing a Daytona account with others.
+    daytona_project_label="toolathlonShirley",
+
+    # Daytona decoupled mode overrides (only used when runner_mode="decoupled")
+    daytona_timeouts=Dict(
+        gateway_port=10086,          # SSE gateway port inside sandbox
+        gateway_startup=120,         # Seconds to wait for gateway readiness
+        preprocess=300,              # Seconds for preprocess phase
+        eval=300,                    # Seconds for evaluation phase
+    ),
 )

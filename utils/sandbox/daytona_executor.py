@@ -147,7 +147,7 @@ class DaytonaSandboxExecutor(BaseSandboxExecutor):
 
         # Labels for sandbox identification (prevents accidental deletion of other projects)
         labels = {
-            "project": "toolathlonShirley",
+            "project": self.config.daytona_project_label,
             "task": self.config.task_dir,
         }
 

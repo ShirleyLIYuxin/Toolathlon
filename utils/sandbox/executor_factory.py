@@ -36,6 +36,12 @@ def create_executor(
     # Decoupled mode
     runner_mode: str = "containerized",
     agent_framework: str = "toolathlon_default",
+    # Daytona project label and decoupled timeouts
+    daytona_project_label: str = "toolathlonShirley",
+    daytona_gateway_port: int = 10086,
+    daytona_gateway_startup_timeout: int = 120,
+    daytona_preprocess_timeout: int = 300,
+    daytona_eval_timeout: int = 300,
     # Common
     env_vars: Optional[Dict[str, str]] = None,
     project_root: Optional[Path] = None,
@@ -102,6 +108,11 @@ def create_executor(
             daytona_disk_gb=daytona_disk_gb,
             runner_mode=runner_mode,
             agent_framework=agent_framework,
+            daytona_project_label=daytona_project_label,
+            daytona_gateway_port=daytona_gateway_port,
+            daytona_gateway_startup_timeout=daytona_gateway_startup_timeout,
+            daytona_preprocess_timeout=daytona_preprocess_timeout,
+            daytona_eval_timeout=daytona_eval_timeout,
             env_vars=final_env_vars,
         )
 
@@ -178,6 +189,10 @@ def create_executor_from_global_config(
     daytona_memory_gb = daytona_resources.get("memory_gb", 8)
     daytona_disk_gb = daytona_resources.get("disk_gb", 10)
 
+    # Daytona project label and decoupled timeouts
+    daytona_project_label = config_data.get("daytona_project_label", "toolathlonShirley")
+    daytona_timeouts = config_data.get("daytona_timeouts", {})
+
     return create_executor(
         backend=backend,
         task_dir=task_dir,
@@ -196,6 +211,11 @@ def create_executor_from_global_config(
         daytona_disk_gb=daytona_disk_gb,
         runner_mode=runner_mode,
         agent_framework=agent_framework,
+        daytona_project_label=daytona_project_label,
+        daytona_gateway_port=daytona_timeouts.get("gateway_port", 10086),
+        daytona_gateway_startup_timeout=daytona_timeouts.get("gateway_startup", 120),
+        daytona_preprocess_timeout=daytona_timeouts.get("preprocess", 300),
+        daytona_eval_timeout=daytona_timeouts.get("eval", 300),
         project_root=project_root,
     )
 

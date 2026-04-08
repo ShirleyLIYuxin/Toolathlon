@@ -116,7 +116,7 @@ async def main():
         Image.base(args.base_image)
         .dockerfile_commands([
             "RUN apt-get update && apt-get install -y docker.io jq && rm -rf /var/lib/apt/lists/*",
-            "RUN mkdir -p /workspace/dumps /workspace/logs /workspace/tasks /workspace/deployment /workspace/configs",
+            "RUN mkdir -p /workspace/dumps /workspace/logs /workspace/tasks /workspace/deployment /workspace/configs /workspace/.decoupled_runtime",
         ])
     )
 
